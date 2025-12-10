@@ -108,16 +108,29 @@ const App: React.FC = () => {
 
   const handleCopyAll = () => {
     if (items.length === 0) return;
-    const text = items.map((i) => i.content).join('\n');
+
+    const headers = ['学校名,学年,クラス,入力者名,スキャン日時,内容,形式'];
+    const rows = items.map((item) => {
+      const date = new Date(item.timestamp).toLocaleString();
+      const safeContent = `"${item.content.replace(/"/g, '""')}"`;
+      const safeSchool = `"${item.schoolName.replace(/"/g, '""')}"`;
+      const safeGrade = `"${item.grade.replace(/"/g, '""')}"`;
+      const safeClass = `"${item.className.replace(/"/g, '""')}"`;
+      const safeInputter = `"${item.inputterName.replace(/"/g, '""')}"`;
+
+      return `${safeSchool},${safeGrade},${safeClass},${safeInputter},${date},${safeContent},${item.format}`;
+    });
+
+    const text = [headers, ...rows].join('\n');
     navigator.clipboard.writeText(text);
-    alert('クリップボードにコピーしました！');
+    alert('全データをクリップボードにコピーしました（CSV形式）');
   };
 
   const handleDownloadCSV = () => {
     if (items.length === 0) return;
     // Add BOM for Excel compatibility with Japanese characters
     const BOM = '\uFEFF';
-    const headers = ['日時,内容,形式,学校名,学年,クラス,入力者名'];
+    const headers = ['学校名,学年,クラス,入力者名,スキャン日時,内容,形式'];
     const rows = items.map((item) => {
       const date = new Date(item.timestamp).toLocaleString();
       // Escape quotes in content
@@ -127,7 +140,7 @@ const App: React.FC = () => {
       const safeClass = `"${item.className.replace(/"/g, '""')}"`;
       const safeInputter = `"${item.inputterName.replace(/"/g, '""')}"`;
 
-      return `${date},${safeContent},${item.format},${safeSchool},${safeGrade},${safeClass},${safeInputter}`;
+      return `${safeSchool},${safeGrade},${safeClass},${safeInputter},${date},${safeContent},${item.format}`;
     });
 
     const csvContent = BOM + [headers, ...rows].join('\n');
@@ -147,8 +160,8 @@ const App: React.FC = () => {
       {/* Toast Notification */}
       {toast && (
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-6 py-3 rounded-full shadow-2xl border ${toast.type === 'success'
-            ? 'bg-emerald-900/90 border-emerald-500 text-emerald-100'
-            : 'bg-yellow-900/90 border-yellow-500 text-yellow-100'
+          ? 'bg-emerald-900/90 border-emerald-500 text-emerald-100'
+          : 'bg-yellow-900/90 border-yellow-500 text-yellow-100'
           } animate-in slide-in-from-top-4 fade-in duration-300`}>
           {toast.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
           <span className="font-bold">{toast.message}</span>
