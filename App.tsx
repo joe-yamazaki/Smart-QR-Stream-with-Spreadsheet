@@ -1,17 +1,17 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import Scanner from './components/Scanner';
 import HistoryList from './components/HistoryList';
 import { ScannedItem } from './types';
 import { playScanBeep } from './utils/beep';
-import { Download, Copy, Sparkles, X, Share2, Settings, ChevronDown, ChevronUp } from 'lucide-react';
-import { analyzeScannedItems } from './services/geminiService';
+import { Download, Copy, X, Settings, ChevronDown, ChevronUp, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [items, setItems] = useState<ScannedItem[]>([]);
   const [isScanningPaused, setIsScanningPaused] = useState(false);
-  const [analysis, setAnalysis] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showSettings, setShowSettings] = useState(true);
+
+  // Toast State
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'warning'; id: number } | null>(null);
 
   // Metadata state
   const [metadata, setMetadata] = useState({
@@ -21,14 +21,46 @@ const App: React.FC = () => {
     inputterName: ''
   });
 
-  // Cooldown to prevent duplicate rapid scans
+  // Cooldown & Duplicate Check
   const lastScanRef = useRef<string | null>(null);
   const lastScanTimeRef = useRef<number>(0);
 
+  // Auto-hide toast
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  // Sync metadata to all items whenever metadata changes
+  const handleMetadataChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    // Update local metadata state
+    const newMetadata = { ...metadata, [name]: value };
+    setMetadata(newMetadata);
+
+    // Update ALL existing items
+    setItems((prevItems) =>
+      prevItems.map(item => ({
+        ...item,
+        schoolName: newMetadata.schoolName,
+        grade: newMetadata.grade,
+        className: newMetadata.className,
+        inputterName: newMetadata.inputterName
+      }))
+    );
+  };
+
+  const showToast = (message: string, type: 'success' | 'warning') => {
+    setToast({ message, type, id: Date.now() });
+  };
+
   const handleScan = useCallback((content: string, format: string) => {
     const now = Date.now();
-    // 2-second cooldown for the exact same code
-    if (content === lastScanRef.current && now - lastScanTimeRef.current < 2000) {
+
+    // Simple cooldown for EXACT same scan to prevent flooding (1.5s)
+    if (content === lastScanRef.current && now - lastScanTimeRef.current < 1500) {
       return;
     }
 
@@ -37,12 +69,21 @@ const App: React.FC = () => {
 
     playScanBeep();
 
+    // Check for duplicates in the current list
+    const isDuplicate = items.some(item => item.content === content);
+
+    if (isDuplicate) {
+      showToast('既にスキャン済みです', 'warning');
+      // We do NOT add duplicates to the list, but we still feedback
+      return;
+    }
+
     const newItem: ScannedItem = {
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
       content,
       format,
       timestamp: now,
-      // Save current metadata snapshot with this item
+      // Apply current metadata
       schoolName: metadata.schoolName,
       grade: metadata.grade,
       className: metadata.className,
@@ -50,29 +91,33 @@ const App: React.FC = () => {
     };
 
     setItems((prev) => [newItem, ...prev]);
-  }, [metadata]); // Re-create callback when metadata changes
+    showToast('スキャン成功！', 'success');
+
+  }, [items, metadata]); // items dependency needed for duplicate check
 
   const handleDelete = (id: string) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleClear = () => {
-    if (confirm('Clear all scanned history?')) {
+    if (confirm('履歴をすべて削除しますか？')) {
       setItems([]);
-      setAnalysis(null);
+      lastScanRef.current = null;
     }
   };
 
   const handleCopyAll = () => {
+    if (items.length === 0) return;
     const text = items.map((i) => i.content).join('\n');
     navigator.clipboard.writeText(text);
-    alert('All items copied to clipboard!');
+    alert('クリップボードにコピーしました！');
   };
 
   const handleDownloadCSV = () => {
+    if (items.length === 0) return;
     // Add BOM for Excel compatibility with Japanese characters
     const BOM = '\uFEFF';
-    const headers = ['Timestamp,Content,Format,School Name,Grade,Class,Inputter Name'];
+    const headers = ['日時,内容,形式,学校名,学年,クラス,入力者名'];
     const rows = items.map((item) => {
       const date = new Date(item.timestamp).toLocaleString();
       // Escape quotes in content
@@ -90,87 +135,57 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `scan_results_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `スキャン結果_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  const handleAnalyze = async () => {
-    if (items.length === 0) return;
-    setIsAnalyzing(true);
-    const result = await analyzeScannedItems(items);
-    setAnalysis(result);
-    setIsAnalyzing(false);
-  };
-
-  const handleShareApp = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Smart QR Stream',
-          text: 'QRコードを連続スキャンしてリスト化できる便利なアプリです。',
-          url: window.location.href,
-        });
-      } catch (err) {
-        console.debug('Share cancelled');
-      }
-    } else {
-      navigator.clipboard.writeText(window.location.href);
-      alert('アプリのURLをコピーしました！');
-    }
-  };
-
-  const handleMetadataChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setMetadata(prev => ({ ...prev, [name]: value }));
-  };
-
   return (
-    <div className="min-h-screen bg-slate-950 pb-32">
+    <div className="min-h-screen bg-slate-950 pb-10 font-sans">
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-6 py-3 rounded-full shadow-2xl border ${toast.type === 'success'
+            ? 'bg-emerald-900/90 border-emerald-500 text-emerald-100'
+            : 'bg-yellow-900/90 border-yellow-500 text-yellow-100'
+          } animate-in slide-in-from-top-4 fade-in duration-300`}>
+          {toast.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+          <span className="font-bold">{toast.message}</span>
+        </div>
+      )}
 
       {/* Header */}
       <header className="sticky top-0 z-20 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 p-4">
         <div className="max-w-md mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-500 bg-clip-text text-transparent">
+          <h1 className="text-lg font-bold bg-gradient-to-r from-emerald-400 to-cyan-500 bg-clip-text text-transparent">
             Smart QR Stream
           </h1>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleShareApp}
-              className="text-slate-400 hover:text-emerald-400 transition-colors p-1"
-              title="Share App"
-            >
-              <Share2 size={20} />
-            </button>
 
-            <div className="h-5 w-px bg-slate-800"></div>
-
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-400 cursor-pointer select-none">
-              <span className={isScanningPaused ? "text-yellow-500" : "text-emerald-500"}>
-                {isScanningPaused ? 'PAUSED' : 'LIVE'}
-              </span>
-              <div className="relative inline-flex h-5 w-9 items-center rounded-full bg-slate-700 transition-colors duration-200">
-                <input
-                  type="checkbox"
-                  className="peer sr-only"
-                  checked={!isScanningPaused}
-                  onChange={() => setIsScanningPaused(!isScanningPaused)}
-                />
-                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition duration-200 ease-in-out ${!isScanningPaused ? 'translate-x-5 bg-emerald-400' : 'translate-x-1'}`} />
-              </div>
-            </label>
-          </div>
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-400 cursor-pointer select-none">
+            <span className={isScanningPaused ? "text-yellow-500" : "text-emerald-500"}>
+              {isScanningPaused ? '一時停止' : 'スキャン中'}
+            </span>
+            <div className="relative inline-flex h-5 w-9 items-center rounded-full bg-slate-700 transition-colors duration-200">
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={!isScanningPaused}
+                onChange={() => setIsScanningPaused(!isScanningPaused)}
+              />
+              <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition duration-200 ease-in-out ${!isScanningPaused ? 'translate-x-5 bg-emerald-400' : 'translate-x-1'}`} />
+            </div>
+          </label>
         </div>
       </header>
 
       <main className="max-w-md mx-auto p-4 space-y-6">
 
         {/* Scanner Section */}
-        <section>
+        <section className="relative">
           <Scanner onScan={handleScan} isPaused={isScanningPaused} />
           <div className="mt-2 text-center text-xs text-slate-500">
-            {isScanningPaused ? 'Tap toggle above to resume scanning' : 'Point camera at a code. Scans automatically.'}
+            {isScanningPaused ? '上のスイッチでスキャンを再開' : 'カメラをコードに向けてください（連続スキャン可能）'}
           </div>
         </section>
 
@@ -179,10 +194,11 @@ const App: React.FC = () => {
           <button
             onClick={() => setShowSettings(!showSettings)}
             className="w-full flex items-center justify-between p-3 text-sm font-medium text-slate-300 hover:bg-slate-800/50 transition-colors"
+            title="設定を開閉"
           >
             <div className="flex items-center gap-2">
               <Settings size={16} className="text-emerald-500" />
-              <span>入力設定 (登録情報)</span>
+              <span>登録情報設定 (反映されます)</span>
             </div>
             {showSettings ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
@@ -197,7 +213,7 @@ const App: React.FC = () => {
                   value={metadata.schoolName}
                   onChange={handleMetadataChange}
                   placeholder="例: ○○小学校"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
                 />
               </div>
               <div>
@@ -208,7 +224,7 @@ const App: React.FC = () => {
                   value={metadata.grade}
                   onChange={handleMetadataChange}
                   placeholder="例: 1"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
                 />
               </div>
               <div>
@@ -219,7 +235,7 @@ const App: React.FC = () => {
                   value={metadata.className}
                   onChange={handleMetadataChange}
                   placeholder="例: 2組"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
                 />
               </div>
               <div className="col-span-2">
@@ -230,33 +246,15 @@ const App: React.FC = () => {
                   value={metadata.inputterName}
                   onChange={handleMetadataChange}
                   placeholder="例: 山田 花子"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
                 />
               </div>
-              <div className="col-span-2 text-[10px] text-slate-500 text-center pt-1">
-                ※ 入力内容は以降のスキャンデータに自動で付与されます
+              <div className="col-span-2 text-[10px] text-emerald-500/80 text-center pt-1">
+                ※ 内容を変更すると、読み取り済みの全てのデータにも反映されます
               </div>
             </div>
           )}
         </section>
-
-        {/* AI Analysis Result */}
-        {analysis && (
-          <div className="bg-gradient-to-br from-indigo-900/40 to-slate-900 border border-indigo-500/30 rounded-xl p-4 animate-in fade-in slide-in-from-bottom-2">
-            <div className="flex justify-between items-start mb-2">
-              <h3 className="text-indigo-300 font-semibold flex items-center gap-2">
-                <Sparkles size={16} />
-                AI Analysis
-              </h3>
-              <button onClick={() => setAnalysis(null)} className="text-slate-500 hover:text-white">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="prose prose-invert prose-sm max-w-none text-slate-300">
-              <p className="whitespace-pre-line">{analysis}</p>
-            </div>
-          </div>
-        )}
 
         {/* List Section */}
         <section>
@@ -267,50 +265,36 @@ const App: React.FC = () => {
           />
         </section>
 
-      </main>
-
-      {/* Sticky Bottom Actions */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 p-4 bg-gradient-to-t from-slate-950 via-slate-950/95 to-transparent">
-        <div className="max-w-md mx-auto grid grid-cols-2 gap-3 sm:grid-cols-3">
-
+        {/* Actions - Static at bottom of content, NOT fixed/floating */}
+        <div className="pt-4 pb-8 border-t border-slate-800 grid grid-cols-2 gap-4">
           <button
             onClick={handleCopyAll}
             disabled={items.length === 0}
-            className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+            className="flex items-center justify-center gap-2 p-4 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
           >
-            <Copy size={20} className="mb-1 text-slate-400 group-hover:text-white" />
-            <span className="text-xs font-medium text-slate-300">Copy All</span>
+            <Copy size={18} className="text-slate-400 group-hover:text-emerald-400" />
+            <span className="font-bold text-slate-300">全てコピー</span>
           </button>
 
           <button
             onClick={handleDownloadCSV}
             disabled={items.length === 0}
-            className="flex flex-col items-center justify-center p-3 rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+            className="flex items-center justify-center gap-2 p-4 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
           >
-            <Download size={20} className="mb-1 text-slate-400 group-hover:text-white" />
-            <span className="text-xs font-medium text-slate-300">CSV</span>
+            <Download size={18} className="text-slate-400 group-hover:text-emerald-400" />
+            <span className="font-bold text-slate-300">CSV 保存</span>
           </button>
 
-          {/* Gemini Analyze Button */}
           <button
-            onClick={handleAnalyze}
-            disabled={items.length === 0 || isAnalyzing}
-            className={`col-span-2 sm:col-span-1 flex flex-col items-center justify-center p-3 rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden
-                    ${isAnalyzing ? 'bg-indigo-900/50 border-indigo-700' : 'bg-indigo-600 hover:bg-indigo-500 border-indigo-500'}
-                `}
+            onClick={handleClear}
+            disabled={items.length === 0}
+            className="col-span-2 mt-2 py-3 text-xs text-red-400 hover:text-red-300 hover:bg-red-950/30 rounded transition-colors disabled:opacity-0"
           >
-            {isAnalyzing ? (
-              <div className="absolute inset-0 bg-white/10 animate-pulse" />
-            ) : null}
-            <Sparkles size={20} className={`mb-1 ${isAnalyzing ? 'text-indigo-300' : 'text-white'}`} />
-            <span className={`text-xs font-medium ${isAnalyzing ? 'text-indigo-200' : 'text-white'}`}>
-              {isAnalyzing ? 'Analyzing...' : 'AI Analyze'}
-            </span>
+            履歴を全て削除
           </button>
-
         </div>
-      </div>
 
+      </main>
     </div>
   );
 };
