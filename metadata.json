@@ -1,0 +1,7 @@
+{
+  "name": "Smart QR Stream with Spreadsheet",
+  "description": "A continuous QR code scanner that builds a list of results, allows CSV export, and offers AI-powered analysis of scanned content.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
