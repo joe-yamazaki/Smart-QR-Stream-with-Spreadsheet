@@ -59,8 +59,8 @@ const App: React.FC = () => {
   const handleScan = useCallback((content: string, format: string) => {
     const now = Date.now();
 
-    // Simple cooldown for EXACT same scan to prevent flooding (1.5s)
-    if (content === lastScanRef.current && now - lastScanTimeRef.current < 1500) {
+    // Simple cooldown for EXACT same scan (reduced to 800ms for faster feel)
+    if (content === lastScanRef.current && now - lastScanTimeRef.current < 800) {
       return;
     }
 
@@ -109,16 +109,19 @@ const App: React.FC = () => {
   const handleCopyAll = () => {
     if (items.length === 0) return;
 
-    const headers = ['学校名,学年,クラス,入力者名,スキャン日時,内容,形式'];
+    // Updated order and removed quotes as requested
+    // School Name, Grade, Class, Inputter Name, Content, Format, Timestamp
+    const headers = ['学校名,学年,クラス,入力者名,内容,形式,スキャン日時'];
     const rows = items.map((item) => {
       const date = new Date(item.timestamp).toLocaleString();
-      const safeContent = `"${item.content.replace(/"/g, '""')}"`;
-      const safeSchool = `"${item.schoolName.replace(/"/g, '""')}"`;
-      const safeGrade = `"${item.grade.replace(/"/g, '""')}"`;
-      const safeClass = `"${item.className.replace(/"/g, '""')}"`;
-      const safeInputter = `"${item.inputterName.replace(/"/g, '""')}"`;
+      // User explicitly requested to remove quotes because content is CSV data
+      const content = item.content;
+      const school = item.schoolName;
+      const grade = item.grade;
+      const className = item.className;
+      const inputter = item.inputterName;
 
-      return `${safeSchool},${safeGrade},${safeClass},${safeInputter},${date},${safeContent},${item.format}`;
+      return `${school},${grade},${className},${inputter},${content},${item.format},${date}`;
     });
 
     const text = [headers, ...rows].join('\n');
@@ -130,17 +133,16 @@ const App: React.FC = () => {
     if (items.length === 0) return;
     // Add BOM for Excel compatibility with Japanese characters
     const BOM = '\uFEFF';
-    const headers = ['学校名,学年,クラス,入力者名,スキャン日時,内容,形式'];
+    const headers = ['学校名,学年,クラス,入力者名,内容,形式,スキャン日時'];
     const rows = items.map((item) => {
       const date = new Date(item.timestamp).toLocaleString();
-      // Escape quotes in content
-      const safeContent = `"${item.content.replace(/"/g, '""')}"`;
-      const safeSchool = `"${item.schoolName.replace(/"/g, '""')}"`;
-      const safeGrade = `"${item.grade.replace(/"/g, '""')}"`;
-      const safeClass = `"${item.className.replace(/"/g, '""')}"`;
-      const safeInputter = `"${item.inputterName.replace(/"/g, '""')}"`;
+      const content = item.content;
+      const school = item.schoolName;
+      const grade = item.grade;
+      const className = item.className;
+      const inputter = item.inputterName;
 
-      return `${safeSchool},${safeGrade},${safeClass},${safeInputter},${date},${safeContent},${item.format}`;
+      return `${school},${grade},${className},${inputter},${content},${item.format},${date}`;
     });
 
     const csvContent = BOM + [headers, ...rows].join('\n');
