@@ -28,7 +28,7 @@ const App: React.FC = () => {
   // Auto-hide toast
   useEffect(() => {
     if (toast) {
-      const timer = setTimeout(() => setToast(null), 3000);
+      const timer = setTimeout(() => setToast(null), 1000); // Reduced to 1s
       return () => clearTimeout(timer);
     }
   }, [toast]);
@@ -110,8 +110,8 @@ const App: React.FC = () => {
     if (items.length === 0) return;
 
     // Updated order and removed quotes as requested
-    // School Name, Grade, Class, Inputter Name, Content, Format, Timestamp
-    const headers = ['学校名,学年,クラス,入力者名,内容,形式,スキャン日時'];
+    // School Name, Grade, Class, Inputter Name, Content, Timestamp
+    const headers = ['学校名,学年,クラス,入力者名,内容,スキャン日時'];
     const rows = items.map((item) => {
       const date = new Date(item.timestamp).toLocaleString();
       // User explicitly requested to remove quotes because content is CSV data
@@ -121,7 +121,7 @@ const App: React.FC = () => {
       const className = item.className;
       const inputter = item.inputterName;
 
-      return `${school},${grade},${className},${inputter},${content},${item.format},${date}`;
+      return `${school},${grade},${className},${inputter},${content},${date}`;
     });
 
     const text = [headers, ...rows].join('\n');
@@ -133,7 +133,7 @@ const App: React.FC = () => {
     if (items.length === 0) return;
     // Add BOM for Excel compatibility with Japanese characters
     const BOM = '\uFEFF';
-    const headers = ['学校名,学年,クラス,入力者名,内容,形式,スキャン日時'];
+    const headers = ['学校名,学年,クラス,入力者名,内容,スキャン日時'];
     const rows = items.map((item) => {
       const date = new Date(item.timestamp).toLocaleString();
       const content = item.content;
@@ -142,7 +142,7 @@ const App: React.FC = () => {
       const className = item.className;
       const inputter = item.inputterName;
 
-      return `${school},${grade},${className},${inputter},${content},${item.format},${date}`;
+      return `${school},${grade},${className},${inputter},${content},${date}`;
     });
 
     const csvContent = BOM + [headers, ...rows].join('\n');
