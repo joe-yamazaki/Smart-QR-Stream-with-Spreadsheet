@@ -35,27 +35,47 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isPaused }) => {
     if (video.readyState === video.HAVE_ENOUGH_DATA) {
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (ctx) {
+        // Set canvas to match video dimensions
         canvas.height = video.videoHeight;
         canvas.width = video.videoWidth;
+
+        // Calculate ROI (Region of Interest) - Center Square
+        // We want to scan a square area in the center, essentially matching the visual guide
+        const size = Math.min(canvas.width, canvas.height) * 0.7; // Scan 70% of the smaller dimension
+        const x = (canvas.width - size) / 2;
+        const y = (canvas.height - size) / 2;
+
+        // Draw full frame for debugging/visuals (optional, usually we just need data)
+        // ctx.drawImage(video, 0, 0, canvas.width, canvas.height); 
+
+        // Extract ROI data directly
+        // Note: Creating a temporary canvas for cropping can be cleaner but getImageData is direct
+        // However, we can't simple getImageData from the video. We must draw to canvas first.
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(x, y, size, size);
 
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-        // Use jsQR to decode
+        // Use jsQR to decode ONLY the ROI
         const code = jsQR(imageData.data, imageData.width, imageData.height, {
           inversionAttempts: "attemptBoth",
         });
 
         if (code && code.data) {
-          // Draw outline
+          // Draw outline - needed to translate ROI coordinates back to full canvas
           ctx.beginPath();
           ctx.lineWidth = 4;
           ctx.strokeStyle = "#10b981"; // Emerald 500
-          ctx.moveTo(code.location.topLeftCorner.x, code.location.topLeftCorner.y);
-          ctx.lineTo(code.location.topRightCorner.x, code.location.topRightCorner.y);
-          ctx.lineTo(code.location.bottomRightCorner.x, code.location.bottomRightCorner.y);
-          ctx.lineTo(code.location.bottomLeftCorner.x, code.location.bottomLeftCorner.y);
-          ctx.lineTo(code.location.topLeftCorner.x, code.location.topLeftCorner.y);
+
+          const tl = code.location.topLeftCorner;
+          const tr = code.location.topRightCorner;
+          const br = code.location.bottomRightCorner;
+          const bl = code.location.bottomLeftCorner;
+
+          // Translate coordinates: add offsetX (x) and offsetY (y)
+          ctx.moveTo(tl.x + x, tl.y + y);
+          ctx.lineTo(tr.x + x, tr.y + y);
+          ctx.lineTo(br.x + x, br.y + y);
+          ctx.lineTo(bl.x + x, bl.y + y);
+          ctx.lineTo(tl.x + x, tl.y + y);
           ctx.stroke();
 
           // Notify parent using ref
@@ -64,7 +84,7 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isPaused }) => {
       }
     }
     animationFrameRef.current = requestAnimationFrame(scanFrame);
-  }, [isPaused]); // Removed onScan from dependencies
+  }, [isPaused]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -72,9 +92,16 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isPaused }) => {
     const startCamera = async () => {
       setStatus(ScannerStatus.SCANNING);
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
-        });
+        const constraints = {
+          video: {
+            facingMode: 'environment',
+            width: { min: 640, ideal: 1280, max: 1920 },
+            height: { min: 480, ideal: 720, max: 1080 },
+            advanced: [{ focusMode: 'continuous' }] as any
+          }
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
